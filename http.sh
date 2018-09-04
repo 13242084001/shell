@@ -6,7 +6,7 @@ http800_to_1500=0
 gt_1500=0
 
 for i in `seq 1 100`;do
-	#这里用tcpdump抓包，我们知道tcp头部可选部分通常为空，那么头部大小固定为20字节，tcp[20:2]表示从tcp报文第20个字节开始的后两个字节，0x4745代表GET，0x4854代表POST
+	#这里用tcpdump抓包，我们知道tcp头部可选部分通常为空，那么头部大小固定为20字节，tcp[20:2]表示从tcp报文第20个字节开始的后两个字节，0x4745代表GET，0x504f代表POST,0x4854代表HTTP
 	tcpdump -i p2p2 -A "tcp[20:2]=0x4745" -c 1 |sed 's/.*GET/GET/'|sed 'N;/\nGET/!P;D' > test1.txt
 	cat test1.txt >>  test2.txt
 	len_num=`cat test1.txt|sed 's/^/flag/g'|grep -A100 'GET'|grep -B100 'flag'|grep -v 'flag'|wc -c`
