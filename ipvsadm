@@ -1,0 +1,38 @@
+#!/bin/bash
+#
+#chkconfig: 2345 85 20
+#description: service for ipvs/nat
+VIP=192.168.1.243
+DIP=172.16.1.1
+RIP1=172.16.1.2
+RIP2=172.16.1.3
+lock_file=/var/lock/ipvsadm.lock
+case $1 in
+start)
+    if [ ! -e $lock_file ];then
+        echo 1 > /proc/sys/net/ipv4/ip_forward
+        iptables -F
+        ipvsadm -A -t $VIP:5001 -s rr
+        ipvsadm -a -t $VIP:5001 -r $RIP1 -m
+        ipvsadm -a -t $VIP:5001 -r $RIP2 -m
+        touch $lock_file
+    else
+	echo "ipvsnat is already running..."
+    fi
+    ;;
+stop)
+    if [ -e $lock_file ];then
+        echo 0 > /proc/sys/net/ipv4/ip_forward
+        ipvsadm -C
+	rm -rf $lock_file
+    else
+	echo "ipvsnat is not running..."
+    fi
+    ;;
+status)
+    [ -e $lock_file ] && echo "ipvsnat is running..." || echo "ipvsnat is stop..."
+    ;;
+*)
+    echo "Usage:$0 {start|stop|status}"
+    ;;
+esac
