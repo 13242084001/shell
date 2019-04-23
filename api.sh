@@ -80,3 +80,20 @@ if [ $# -gt 0 ];then
 	#curl -H "Content-Type: application/json" $url -d@test.json -v >> test.log
 fi
 
+nic=(`cat /proc/net/dev|grep :|awk {print $1}`)
+for i in ${nic[@]};do
+	echo $i
+done
+
+while true;do
+	sleep 1
+	arr=()
+	cat /proc/net/dev|grep :|while read line;do
+		arr+=(`echo $line|awk '{print $2" "$10}'`)
+	done
+	echo ${arr[@]}
+	for nic in ${nic[@]};do
+		
+		echo "$nic\tarr[1]"
+	done
+done
