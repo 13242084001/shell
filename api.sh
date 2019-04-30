@@ -8,7 +8,7 @@ runTestCase() {
 	case $url in
 	/login |/register)
 		{
-			res=`curl -H "Content-Type: application/json" "http://183.134.68.73:8103$url" -X$method -d@test.json`
+			res=`curl -H "Content-Type: application/json" "http://192.168.137.2:81$url" -X$method -d@test.json`
 			token=`echo $res|jq .token`
 			token=${token//\"/}
 			Auth="Authorization: $token"
@@ -17,10 +17,10 @@ runTestCase() {
 	*)
 		{
 			if [ $input = 'null' ];then
-                		res=`curl -H "Authorization: $token" "http://183.134.68.73:8103$url" -X$method`
+                		res=`curl -H "Authorization: $token" "http://192.168.137.2:81$url" -X$method`
         		else
 				echo $Auth
-                		res=`curl -H "Content-Type: application/json" -H "Authorization: $token" "http://183.134.68.73:8103$url" -X$method -d@test.json`
+                		res=`curl -H "Content-Type: application/json" -H "Authorization: $token" "http://192.168.137.2:8103$url" -X$method -d@test.json`
         		fi
 
 		}
@@ -80,20 +80,20 @@ if [ $# -gt 0 ];then
 	#curl -H "Content-Type: application/json" $url -d@test.json -v >> test.log
 fi
 
-nic=(`cat /proc/net/dev|grep :|awk {print $1}`)
-for i in ${nic[@]};do
-	echo $i
-done
+#nic=(`cat /proc/net/dev|grep :|awk '{print $1}'`)
+#for i in ${nic[@]};do
+#	echo $i
+#done
 
-while true;do
-	sleep 1
-	arr=()
-	cat /proc/net/dev|grep :|while read line;do
-		arr+=(`echo $line|awk '{print $2" "$10}'`)
-	done
-	echo ${arr[@]}
-	for nic in ${nic[@]};do
-		
-		echo "$nic\tarr[1]"
-	done
-done
+#while true;do
+#	sleep 1
+#	arr=()
+#	cat /proc/net/dev|grep :|while read line;do
+#		arr+=(`echo $line|awk '{print $2" "$10}'`)
+#	done
+#	echo ${arr[@]}
+#	for nic in ${nic[@]};do
+#		
+#		echo "$nic\tarr[1]"
+#	done
+#done
