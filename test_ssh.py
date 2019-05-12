@@ -1,38 +1,57 @@
 #coding:utf-8
-from settings import *
+import yaml
 import os
 import time
-try:
-    import paramiko
-except ImportError as e:
-    print("没有安装paramiko,正在安装paramiko...,请稍等")
-    os.popen("pip3 install paramiko")
-    import paramiko
-try:
-    import threading
-except ImportError as e:
-    print("没有安装threading，正在安装threading...,请稍等")
-    os.popen("pip3 install threading")
-    import threading
+import paramiko
+import threading
+import logging
 
+#logger = logging.getLogger()
+logging.basicConfig(level=logging.DEBUG, format="%(levelname)s: %(message)s", filename="./ssh.log", filemode="w")
+#logger.format = "%(levelname)s:%(message)s"
 
-def tunction(ip,username,password,command):
+def readConfig():
+    #yamlPath = os.path.join(curPath, "config.yaml")
+    try:
+        with open("./config.yaml", "r", encoding="utf-8") as f:
+            data = f.read()
+        logging.info("读取配置文件内容:%s" % (data,))
+    except Exception as e:
+        print(str(e))
+        logging.error("没有配置文件! %s" % str(e))
+        os._exit(0)
+    d = yaml.load(data, Loader=yaml.FullLoader)
+    return d
+
+def tunction(ip,username,password,cmd):
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    client.connect(ip,username= username,password=password)
-    stdin,stdout,stdeer = client.exec_command(command)
+    #print(ip, username, password, type(ip), type(username), type(password))
+    client.connect(ip,username=username,password=password)
+    logging.info("正在登录%s..." % ip)
+    stdin,stdout,stdeer = client.exec_command(cmd)
+    logging.info("正在%s上执行命令" % ip)
     #print(stdout.read())
     if not stdeer.read():
         print("#"*30)
-        print("\033[1;36;40m设备%s执行成功, %s\033[0m" % (ip, ",".join(stdout)))
+        print("\033[1;36;40m设备 %s 执行成功\033[0m" % (ip,))
+        logging.info("\033[1;36;40m设备 %s 执行成功, %s\033[0m" % (ip, ",".join(stdout)))
         #print("#"*30)
     else:
-        print("\033[1;31;40m设备%s执行失败, %s\033[0m" % (ip, ",".join(stdeer)))
+        logging.error("\033[1;31;40m设备 %s 执行失败, %s\033[0m" % (ip, ",".join(stdeer)))
+        print("\033[1;31;40m设备 %s 执行失败\033[0m" % (ip,))
     client.close()
-def main(host_list,command):
+def main(**kwargs):
+    #字典是无序的
+    #ip_list, username, password, cmd = kwargs.values()
+    ip_list = kwargs.get("ip_list")
+    username = kwargs.get("username")
+    password = str(kwargs.get("password"))
+    cmd = kwargs.get("cmd")
+    logging.debug("等待登录的设备列表: %s" % (ip_list,))
     thread_list = []
-    for ip,username,password in host_list:
-        t = threading.Thread(target = tunction,args = (ip,username,password,command))
+    for ip in ip_list:
+        t = threading.Thread(target = tunction,args = (ip,username,password,cmd))
         thread_list.append(t)
     for th in thread_list:
         th.start()
@@ -41,7 +60,8 @@ def main(host_list,command):
 
 if __name__ == "__main__":
     start_time = time.time()
-    m = threading.Thread(target = main,args = (host_list,command)) 
+    d = readConfig()
+    m = threading.Thread(target = main,kwargs = d)
     m.setDaemon(True)
     m.start()
     m.join()
