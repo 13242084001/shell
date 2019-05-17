@@ -21,7 +21,7 @@ version_str=`lsb_release -a 2>/dev/null|grep Codename|awk '{print $2}'`
 
 [ -f ${APT_FILE} ] && mv ${APT_FILE}{,.bak}
 printf "${DEB_SOURCE}" >> ${APT_FILE} && apt-get update -qq && apt --fix-broken install -qq && echo "update apt succuss !"
-install_list=(gnome-screenshot nmap nload)
+install_list=(python-pip)
 for tool in ${install_list[@]};do
 	[ `apt-get install -qq -y $tool` ] && echo "install $tool succuss !"
 done
