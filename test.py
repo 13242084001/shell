@@ -1,5 +1,5 @@
-#!/usr/bin/python3.6
-#
+#!/usr/bin/env python3.6
+#coding=utf-8
 from pyroute2 import IPRoute
 import socket
 import getopt
@@ -12,20 +12,33 @@ from IPy import IP
 
 def usage():
     print('Usage: -h help \n'
-            '       -i ip address\n'
+            '       -d destination ip address\n'
+            '       -s source ip address\n'
+            '       -i interface\n'
             '       -r rate bitrate\n'
+            '       -f flush tc qdisc\n'
             )
 
 def args(usage):
     try:
-        opts, args = getopt.getopt(sys.argv[1:], "hi:r:", ['help', 'ip=', 'rate='])
+        opts, args = getopt.getopt(sys.argv[1:], "hfd:s:i:r:l", ['help', 'flush', 'dst=', 'src=', 'interface=', 'rate=', 'loss='])
         options_dict = {}
         for k, v in opts:
             if k in ('-h', '--help'):
                 usage()
                 os._exit(0)
-            elif k in ('-i', '--ip'):
-                options_dict["dst_ip"] = v
+            elif k in ('-f', '--flush'):
+                interface = options_dict.get('interface')
+                options_dict.clear()
+                options_dict['interface'] = interface
+                options_dict['flush'] = True
+                return options_dict
+            elif k in ('-d', '--dst'):
+                options_dict['dst'] = v
+            elif k in ('-s', '--src'):
+                options_dict['src'] = v
+            elif k in ('-i', '--interface'):
+                options_dict["interface"] = v
             elif k in ('-r', "--rate"):
                 options_dict["rate"] = v
         return options_dict
@@ -35,24 +48,35 @@ def args(usage):
     
 class tc_handle(object):
     
-    def __init__(self, dst_ip=None, rate='1000kbit'):
+    def __init__(self, dst=None, src=None, interface=None, rate='500', flush=False):
         self.ip = IPRoute()
         self.rate = rate
-        self.eth0 = self.ip.link_lookup(ifname='eth0')[0]
-        self.dst_ip = self.ip.get_addr(label='eth0')[0].get('attrs')[0][1] if not dst_ip else dst_ip
-        print(self.dst_ip, self.rate)
-        self.keys = self.v4_hex(self.dst_ip)
-        print(self.keys)
-        print(self.eth0)
+        self.nic = self.ip.link_lookup(ifname=interface if interface else 'eth0')[0]
+        print('nic is %s'% (self.nic))
+        self.flush = flush
+        if not self.flush:
+            if dst != None and src == None:
+                filter_addr_tp = ('dst', dst)
+            elif src != None and dst == None:
+                filter_addr_tp = ('src', src)
+            else:
+                filter_addr_tp = None
+            flag, self.filter_addr = (None, self.ip.get_addr(label=interface)[0].get('attrs')[0][1]) if not filter_addr_tp else filter_addr_tp
+            print(self.filter_addr, self.rate)
+            self.keys = self.v4_hex(self.filter_addr, flag)
+            print(self.keys)
+            #print(self.nic)
 
-    def v4_hex(self, dst_ip):
+    def v4_hex(self, dict_str, flag):
+        flags = '+12' if flag == 'src' else '+16'
+        print('flags %s' % flags)
         try:
-            dst_ip_str = IP(dst_ip).strNormal(2) if len(dst_ip.split('/')) > 1 else dst_ip + '/255.255.255.255'
+            dst_ip_str = IP(dict_str).strNormal(2) if len(dict_str.split('/')) > 1 else dict_str + '/255.255.255.255'
             #dst_net, mask = dst_ip_str.split('/')
-            print(dst_ip_str)
+            #print(dst_ip_str)
             try:
-                keys = ['/'.join([str(hex(int(ipaddress.IPv4Address(i)))) for i in dst_ip_str.split('/')]) + '+16']
-                print('this is key %s' % keys)
+                keys = ['/'.join([str(hex(int(ipaddress.IPv4Address(i)))) for i in dst_ip_str.split('/')]) + flags]
+                #print('this is key %s' % keys)
 
             except Exception as e:
                 print("ip is not available!")
@@ -60,16 +84,27 @@ class tc_handle(object):
             return keys
         except Exception as e:
             print(str(e))
-    
-    def __call__(self):
-        self.ip.tc('add', 'htb', self.eth0, 0x10000, default=0x200000)
-        self.ip.tc('add-class', 'htb', self.eth0, 0x10001, parent=0x10000, rate='100mbit', burst=1024 * 6, prio=3)
-        self.ip.tc('add-class', 'htb', self.eth0, 0x10010, parent=0x10001, rate=self.rate+'kbit', burst=1024 * 6, prio=1)
-        self.ip.tc('add-class', 'htb', self.eth0, 0x10020, parent=0x10001, rate='700mbit', burst=1024 * 6, prio=2)
-        self.ip.tc('add', 'tbf', self.eth0, 0x100000, parent=0x10010, burst=1024 * 6, rate=self.rate+'kbit', latency='200ms')
-        self.ip.tc('add', 'sfq', self.eth0, 0x200000, parent=0x10020, burst=1024 * 6, rate='70mbps', perturb=10)
-        self.ip.tc('add-filter', 'u32', self.eth0, parent=0x10000, prio=1, protocol=socket.AF_INET, target=0x10010, keys=self.keys)
+            os._exit(0)
 
+    def flush_instance(self):
+        try:
+            self.ip.tc('del', 'htb', self.nic, 0x10000)
+        except Exception as e:
+            pass
+
+    def __call__(self):
+        self.flush_instance()
+        if not self.flush:
+            self.ip.tc('add', 'htb', self.nic, 0x10000, default=0x200000)
+            self.ip.tc('add-class', 'htb', self.nic, 0x10001, parent=0x10000, rate='1000mbit', prio=3)
+            print(self.rate)
+            self.ip.tc('add-class', 'htb', self.nic, 0x10010, parent=0x10001, rate=self.rate+'kbit', prio=2)
+            self.ip.tc('add-class', 'htb', self.nic, 0x10020, parent=0x10001, rate='700mbit', prio=1)
+            self.ip.tc('add', 'tbf', self.nic, 0x100000, parent=0x10010, rate=self.rate+'kbit', burst=1024 * 2, latency='200ms')
+            self.ip.tc('add', 'sfq', self.nic, 0x200000, parent=0x10020, perturb=10)
+            #pyroute2 有bug，对socket家族的协议解析有不正确的地方，比如AF_INET应该解析成IPV4,但是解析成了ax25,AF_AX25解析成了all,所以将错就错用这个好了
+            self.ip.tc('add-filter', 'u32', self.nic, parent=0x10000, prio=2, protocol=socket.AF_AX25, target=0x10010, keys=self.keys)
+    
 
 if __name__ == "__main__":
     options_dict = args(usage)
