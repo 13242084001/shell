@@ -1,6 +1,6 @@
 #!/usr/bin/env python3.6
 #coding=utf-8
-from pyroute2 import IPRoute
+from pyroute2 import IPRoute,protocols
 import socket
 import getopt
 import sys
@@ -17,11 +17,13 @@ def usage():
             '       -i interface\n'
             '       -r rate bitrate\n'
             '       -f flush tc qdisc\n'
+            '       -l loss rate\n'
+            '       -D delay\n'
             )
 
 def args(usage):
     try:
-        opts, args = getopt.getopt(sys.argv[1:], "hfd:s:i:r:l", ['help', 'flush', 'dst=', 'src=', 'interface=', 'rate=', 'loss='])
+        opts, args = getopt.getopt(sys.argv[1:], "hfd:s:i:r:l:D", ['help', 'flush', 'dst=', 'src=', 'interface=', 'rate=', 'loss=', 'delay='])
         options_dict = {}
         for k, v in opts:
             if k in ('-h', '--help'):
@@ -40,7 +42,11 @@ def args(usage):
             elif k in ('-i', '--interface'):
                 options_dict["interface"] = v
             elif k in ('-r', "--rate"):
-                options_dict["rate"] = v
+                options_dict["rate"] = int(v)
+            elif k in ('-l', '--loss'):
+                options_dict["loss"] = v
+            elif k in ('-D', 'delay'):
+                options_dict['delay'] = v
         return options_dict
     except Exception as e:
         usage()
@@ -48,12 +54,14 @@ def args(usage):
     
 class tc_handle(object):
     
-    def __init__(self, dst=None, src=None, interface=None, rate='500', flush=False):
+    def __init__(self, dst=None, src=None, interface=None, rate='500', flush=False, loss=0, delay=0):
         self.ip = IPRoute()
         self.rate = rate
-        self.nic = self.ip.link_lookup(ifname=interface if interface else 'eth0')[0]
+        self.nic = self.ip.link_lookup(ifname=interface if interface else 'ens33')[0]
         print('nic is %s'% (self.nic))
         self.flush = flush
+        self.loss = loss
+        self.delay = delay
         if not self.flush:
             if dst != None and src == None:
                 filter_addr_tp = ('dst', dst)
@@ -91,19 +99,28 @@ class tc_handle(object):
             self.ip.tc('del', 'htb', self.nic, 0x10000)
         except Exception as e:
             pass
+    """
+    def only_rate_limit(self):
+        self.ip.tc('add', 'tbf', self.nic, 0x100000, parent=0x10010, rate=self.rate+'kbit', burst=1024 * 2, latency='200ms')
 
+    def only_no_rate_limit(self):
+        self.ip.tc('add', 'netem', self.nic, 0x100000, parent=0x10010, loss=30)
+    """
     def __call__(self):
         self.flush_instance()
         if not self.flush:
             self.ip.tc('add', 'htb', self.nic, 0x10000, default=0x200000)
-            self.ip.tc('add-class', 'htb', self.nic, 0x10001, parent=0x10000, rate='1000mbit', prio=3)
+            self.ip.tc('add-class', 'htb', self.nic, 0x10001, parent=0x10000, rate='1000mbit', prio=4)
             print(self.rate)
-            self.ip.tc('add-class', 'htb', self.nic, 0x10010, parent=0x10001, rate=self.rate+'kbit', prio=2)
-            self.ip.tc('add-class', 'htb', self.nic, 0x10020, parent=0x10001, rate='700mbit', prio=1)
-            self.ip.tc('add', 'tbf', self.nic, 0x100000, parent=0x10010, rate=self.rate+'kbit', burst=1024 * 2, latency='200ms')
+            self.ip.tc('add-class', 'htb', self.nic, 0x10010, parent=0x10001, rate=self.rate+'kbit',prio=3)
+            self.ip.tc('add-class', 'htb', self.nic, 0x10020, parent=0x10001, rate='700mbit', prio=2)
+            if self.loss or self.delay:
+                self.ip.tc('add', 'netem', self.nic, 0x100000, parent=0x10010, loss=self.loss, delay=self.delay)
+            else:
+                self.ip.tc('add', 'tbf', self.nic, 0x100000, parent=0x10010, rate=self.rate+'kbit', burst=1024 * 2, latency='200ms')
             self.ip.tc('add', 'sfq', self.nic, 0x200000, parent=0x10020, perturb=10)
-            #pyroute2 有bug，对socket家族的协议解析有不正确的地方，比如AF_INET应该解析成IPV4,但是解析成了ax25,AF_AX25解析成了all,所以将错就错用这个好了
-            self.ip.tc('add-filter', 'u32', self.nic, parent=0x10000, prio=2, protocol=socket.AF_AX25, target=0x10010, keys=self.keys)
+            #pyroute2 有bug，对socket家族的协议解析有不正确的地方，比如AF_INET应该解析成IPV4,但是解析成了ax25,AF_AX25解析成了all,所以将错就错用这个好了,protocols也一样的结果
+            self.ip.tc('add-filter', 'u32', self.nic, parent=0x10001, prio=1, protocol=socket.AF_AX25, target=0x10010, keys=self.keys)
     
 
 if __name__ == "__main__":
