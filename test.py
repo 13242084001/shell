@@ -8,6 +8,7 @@ import os
 import netifaces
 import ipaddress
 from IPy import IP
+from prettyprinter import cpprint
 
 
 def usage():
@@ -23,7 +24,7 @@ def usage():
 
 def args(usage):
     try:
-        opts, args = getopt.getopt(sys.argv[1:], "hfd:s:i:r:l:D", ['help', 'flush', 'dst=', 'src=', 'interface=', 'rate=', 'loss=', 'delay='])
+        opts, args = getopt.getopt(sys.argv[1:], "hfd:s:i:r:l:D:", ['help', 'flush', 'dst=', 'src=', 'interface=', 'rate=', 'loss=', 'delay='])
         options_dict = {}
         for k, v in opts:
             if k in ('-h', '--help'):
@@ -42,13 +43,14 @@ def args(usage):
             elif k in ('-i', '--interface'):
                 options_dict["interface"] = v
             elif k in ('-r', "--rate"):
-                options_dict["rate"] = int(v)
+                options_dict["rate"] = v
             elif k in ('-l', '--loss'):
-                options_dict["loss"] = v
-            elif k in ('-D', 'delay'):
-                options_dict['delay'] = v
+                options_dict["loss"] = int(v)
+            elif k in ('-D', '--delay'):
+                options_dict['delay'] = int(v)
         return options_dict
     except Exception as e:
+        print(str(e))
         usage()
         os._exit(0)
     
@@ -57,8 +59,8 @@ class tc_handle(object):
     def __init__(self, dst=None, src=None, interface=None, rate='500', flush=False, loss=0, delay=0):
         self.ip = IPRoute()
         self.rate = rate
-        self.nic = self.ip.link_lookup(ifname=interface if interface else 'ens33')[0]
-        print('nic is %s'% (self.nic))
+        self.nic = self.ip.link_lookup(ifname=interface if interface else 'eth0')[0]
+        #print('nic is %s'% (self.nic))
         self.flush = flush
         self.loss = loss
         self.delay = delay
@@ -70,14 +72,14 @@ class tc_handle(object):
             else:
                 filter_addr_tp = None
             flag, self.filter_addr = (None, self.ip.get_addr(label=interface)[0].get('attrs')[0][1]) if not filter_addr_tp else filter_addr_tp
-            print(self.filter_addr, self.rate)
+            #print(self.filter_addr, self.rate)
             self.keys = self.v4_hex(self.filter_addr, flag)
-            print(self.keys)
+            #print(self.keys)
             #print(self.nic)
 
     def v4_hex(self, dict_str, flag):
         flags = '+12' if flag == 'src' else '+16'
-        print('flags %s' % flags)
+        #print('flags %s' % flags)
         try:
             dst_ip_str = IP(dict_str).strNormal(2) if len(dict_str.split('/')) > 1 else dict_str + '/255.255.255.255'
             #dst_net, mask = dst_ip_str.split('/')
@@ -87,7 +89,7 @@ class tc_handle(object):
                 #print('this is key %s' % keys)
 
             except Exception as e:
-                print("ip is not available!")
+                #print("ip is not available!")
                 os._exit(0)
             return keys
         except Exception as e:
@@ -111,19 +113,20 @@ class tc_handle(object):
         if not self.flush:
             self.ip.tc('add', 'htb', self.nic, 0x10000, default=0x200000)
             self.ip.tc('add-class', 'htb', self.nic, 0x10001, parent=0x10000, rate='1000mbit', prio=4)
-            print(self.rate)
+            #print(self.rate)
             self.ip.tc('add-class', 'htb', self.nic, 0x10010, parent=0x10001, rate=self.rate+'kbit',prio=3)
             self.ip.tc('add-class', 'htb', self.nic, 0x10020, parent=0x10001, rate='700mbit', prio=2)
             if self.loss or self.delay:
+                #print(self.delay)
                 self.ip.tc('add', 'netem', self.nic, 0x100000, parent=0x10010, loss=self.loss, delay=self.delay)
             else:
                 self.ip.tc('add', 'tbf', self.nic, 0x100000, parent=0x10010, rate=self.rate+'kbit', burst=1024 * 2, latency='200ms')
             self.ip.tc('add', 'sfq', self.nic, 0x200000, parent=0x10020, perturb=10)
             #pyroute2 有bug，对socket家族的协议解析有不正确的地方，比如AF_INET应该解析成IPV4,但是解析成了ax25,AF_AX25解析成了all,所以将错就错用这个好了,protocols也一样的结果
-            self.ip.tc('add-filter', 'u32', self.nic, parent=0x10001, prio=1, protocol=socket.AF_AX25, target=0x10010, keys=self.keys)
+            self.ip.tc('add-filter', 'u32', self.nic, parent=0x10000, prio=1, protocol=socket.AF_AX25, target=0x10010, keys=self.keys)
     
 
 if __name__ == "__main__":
     options_dict = args(usage)
-    print(options_dict)
+    cpprint(options_dict)
     tc_handle(**options_dict)()
